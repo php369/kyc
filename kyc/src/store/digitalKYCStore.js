@@ -2,55 +2,59 @@ import { create } from 'zustand';
 import { ethers } from 'ethers';
 
 // --- Import your Contract ABI and Address ---
-// Example: Replace with your actual ABI and Address
-import DigitalKYCAbi from '../constants/index.js'; // Assuming you saved the ABI json
-const CONTRACT_ADDRESS = '0x9CaDae5Ea59cc93f8e809d8A2e182Aa9947b44fA'; // Replace with your address
+import DigitalKYCAbi from '../constants/index.js';
+const CONTRACT_ADDRESS = '0x2f243960a2af242271f75b43af37df36b8f3cdbc';
 
 // --- Helper to Parse Errors ---
 const getReadableError = (error) => {
     console.error("Raw Error:", error); // Log the full error for debugging
     let message = 'An unknown error occurred.';
+    
     if (error instanceof Error) {
-        // Ethers v6 specific error handling might be needed
-        // Check for common reasons
+        // Ethers v6 specific error handling
         if (error.code === 'ACTION_REJECTED') {
             message = 'Transaction rejected by user.';
         } else if (error.reason) {
             message = error.reason; // Often contains revert messages
         } else if (error.message) {
-            // Fallback to generic message
-            // Check for revert reason in message (less reliable)
-             const revertReason = error.message.match(/reverted with reason string '(.*?)'/);
-             if (revertReason && revertReason[1]) {
-                 message = revertReason[1];
-             } else {
-                 message = error.message.substring(0, 100) + '...'; // Truncate long messages
-             }
+            // Check for revert reason in message
+            const revertReason = error.message.match(/reverted with reason string '(.*?)'/);
+            if (revertReason && revertReason[1]) {
+                message = revertReason[1];
+            } else {
+                message = error.message.substring(0, 100) + (error.message.length > 100 ? '...' : '');
+            }
         }
-         // Add more specific checks based on common contract errors if needed
-        if(message.includes("AUTH:")) {
-            message = message.split("AUTH: ")[1] || "Authorization Error";
-        } else if (message.includes("KYC:")) {
-             message = message.split("KYC: ")[1] || "KYC Workflow Error";
-        } else if (message.includes("USER:")) {
-             message = message.split("USER: ")[1] || "User Management Error";
-        } else if (message.includes("IFSC:")) {
-             message = message.split("IFSC: ")[1] || "IFSC Error";
+        
+        // Add specific error prefix handling
+        const errorPrefixes = ['AUTH:', 'KYC:', 'USER:', 'IFSC:'];
+        for (const prefix of errorPrefixes) {
+            if (message.includes(prefix)) {
+                message = message.split(`${prefix} `)[1] || `${prefix.replace(':', '')} Error`;
+                break;
+            }
         }
-
     } else if (typeof error === 'string') {
         message = error;
     }
+    
     return message;
 };
 
-// --- Enum Mapping (Optional but helpful) ---
+// --- KYC Status Mapping ---
 export const KYCStatusMap = {
     0: 'Pending',
     1: 'VerifiedByEmployee',
     2: 'ApprovedByAdmin',
     3: 'Rejected',
     4: 'Expired',
+};
+
+// --- User Role Mapping ---
+export const UserRoleMap = {
+    1: 'Customer',
+    2: 'BankEmployee',
+    3: 'Admin',
 };
 
 const useDigitalKYCStore = create((set, get) => ({
@@ -61,19 +65,19 @@ const useDigitalKYCStore = create((set, get) => ({
     account: null,
     isConnected: false,
     userRole: null,
-    userIfsc: '', // Store employee's IFSC
+    userIfsc: '', 
     isAdmin: false,
     isBankEmployee: false,
     isCustomer: false,
-    isLoading: false, // General loading state for transactions/fetching
-    error: null, // Store error messages
-    currentKycDetails: null, // Store details fetched for a specific applicant
-    ifscEmployees: [], // Store list of employees for an IFSC
+    isLoading: false,
+    error: null,
+    currentKycDetails: null,
+    ifscEmployees: [],
 
     // --- Actions ---
 
     /**
-     * Connects to the user's wallet (e.g., MetaMask), initializes ethers,
+     * Connects to the user's wallet, initializes ethers,
      * creates the contract instance, and fetches the user's role.
      */
     connectWallet: async () => {
@@ -90,13 +94,13 @@ const useDigitalKYCStore = create((set, get) => ({
             if (!accounts || accounts.length === 0) {
                 throw new Error('No accounts found or permission denied.');
             }
+            
             const account = accounts[0];
             const signer = await provider.getSigner();
             
             // Create contract instance
             const contract = new ethers.Contract(CONTRACT_ADDRESS, DigitalKYCAbi, signer);
-            console.log('Contract instance created. Available functions:', contract);
-
+            
             set({
                 provider,
                 signer,
@@ -104,51 +108,64 @@ const useDigitalKYCStore = create((set, get) => ({
                 account,
                 isConnected: true,
                 isLoading: false,
-                error: null,
             });
 
             // Fetch user details immediately after connecting
             await get().fetchUserRole();
 
-            // --- Event Listeners (Important for dApp reactivity) ---
-            window.ethereum.removeAllListeners('accountsChanged'); // Clean previous listeners
-            window.ethereum.on('accountsChanged', (newAccounts) => {
-                console.log('Account changed:', newAccounts);
-                 if (newAccounts.length === 0) {
-                    // Handle disconnection
-                    get().disconnect();
-                } else {
-                    // Reconnect with new account - triggers fetchUserDetails again
-                    get().connectWallet();
-                }
-            });
-
-             window.ethereum.removeAllListeners('chainChanged');
-             window.ethereum.on('chainChanged', (chainId) => {
-                 console.log('Network changed to:', chainId);
-                 // Force reload or prompt user as contract might be on a different network
-                 window.location.reload();
-                 // Or alternatively, attempt reconnect which might fail if contract not on new chain
-                 // get().connectWallet();
-             });
-
+            // Setup wallet event listeners
+            get().setupWalletListeners();
 
         } catch (err) {
-            set({ isLoading: false, error: getReadableError(err), isConnected: false });
+            set({ 
+                isLoading: false, 
+                error: getReadableError(err), 
+                isConnected: false 
+            });
             console.error("Connection failed:", err);
         }
+    },
+
+    /**
+     * Setup wallet event listeners for account and chain changes
+     */
+    setupWalletListeners: () => {
+        if (!window.ethereum) return;
+
+        // Clean up existing listeners first
+        window.ethereum.removeAllListeners('accountsChanged');
+        window.ethereum.removeAllListeners('chainChanged');
+        
+        // Account change handler
+        window.ethereum.on('accountsChanged', (newAccounts) => {
+            console.log('Account changed:', newAccounts);
+            if (newAccounts.length === 0) {
+                // Handle disconnection
+                get().disconnect();
+            } else {
+                // Reconnect with new account
+                get().connectWallet();
+            }
+        });
+
+        // Network change handler
+        window.ethereum.on('chainChanged', () => {
+            console.log('Network changed, reloading...');
+            window.location.reload();
+        });
     },
 
     /**
      * Disconnects wallet and resets store state.
      */
     disconnect: () => {
-         // Remove listeners if added
-         if (window.ethereum) {
-             window.ethereum.removeAllListeners('accountsChanged');
-             window.ethereum.removeAllListeners('chainChanged');
-         }
-         set({
+        // Remove listeners if added
+        if (window.ethereum) {
+            window.ethereum.removeAllListeners('accountsChanged');
+            window.ethereum.removeAllListeners('chainChanged');
+        }
+        
+        set({
             provider: null,
             signer: null,
             contract: null,
@@ -167,50 +184,76 @@ const useDigitalKYCStore = create((set, get) => ({
     },
 
     /**
-     * Fetches the details (role, ifsc, active status) for the currently connected account.
-     * @param {string} [accountAddress=current account] - Optional address to fetch details for.
+     * Fetches the role, ifsc, and active status for the connected account.
      */
     fetchUserRole: async () => {
-        const { contract } = get();
-        if (!contract) {
+        const { contract, account } = get();
+        
+        if (!contract || !account) {
             console.warn("Cannot fetch user details: Not connected or no account.");
-            // Reset user details if called without connection
-            set({ userRole: null, userIfsc: '', isAdmin: false, isBankEmployee: false, isCustomer: false });
+            set({ 
+                userRole: null, 
+                userIfsc: '', 
+                isAdmin: false, 
+                isBankEmployee: false, 
+                isCustomer: false 
+            });
             return;
         }
 
+        set({ isLoading: true, error: null });
+        
         try {
-            const role = await contract.getUserRole(get().account);
-            // If role is empty (0x) or null, treat as unregistered user
-            if (!role || role === '0x') {
+            const role = await contract.getUserRole(account);
+            
+            // If role is empty, zero, or null, treat as unregistered
+            if (!role || role === '0x' || Number(role) === 0 && (!role.toString || role.toString() === '0')) {
                 set({
                     userRole: null,
                     userIfsc: '',
                     isAdmin: false,
                     isBankEmployee: false,
-                    isCustomer: false
+                    isCustomer: false,
+                    isLoading: false
                 });
                 return;
             }
 
+            const roleNumber = Number(role);
+            
+            // Get the user's IFSC if they are a bank employee
+            let ifscCode = '';
+            if (roleNumber === 1) {  // Bank Employee
+                try {
+                    // Assuming there's a method to get employee IFSC
+                    ifscCode = await contract.getEmployeeIFSC(account);
+                } catch (ifscErr) {
+                    console.warn("Could not fetch IFSC for employee:", ifscErr);
+                }
+            }
+
             set({
-                userRole: role,
-                userIfsc: role === 1 ? get().userIfsc : '', // Only store IFSC for active employees
-                isAdmin: role === 2,
-                isBankEmployee: role === 1,
-                isCustomer: role === 0,
+                userRole: roleNumber,
+                userIfsc: ifscCode,
+                isAdmin: roleNumber === 3,
+                isBankEmployee: roleNumber === 2,
+                isCustomer: roleNumber === 1,
+                isLoading: false,
                 error: null
             });
-            console.log(`User ${get().account} details: Role=${role}, IFSC=${get().userIfsc}`);
+            
+            console.log(`User ${account} details: Role=${roleNumber} (${UserRoleMap[roleNumber]}), IFSC=${ifscCode}`);
+            
         } catch (err) {
-            // Handle the case where getUserRole returns empty response
+            // Handle specific error cases
             if (err.code === 'BAD_DATA' && err.info?.method === 'getUserRole') {
                 set({
                     userRole: null,
                     userIfsc: '',
                     isAdmin: false,
                     isBankEmployee: false,
-                    isCustomer: false
+                    isCustomer: false,
+                    isLoading: false
                 });
                 return;
             }
@@ -221,8 +264,10 @@ const useDigitalKYCStore = create((set, get) => ({
                 userIfsc: '',
                 isAdmin: false,
                 isBankEmployee: false,
-                isCustomer: false
+                isCustomer: false,
+                isLoading: false
             });
+            
             console.error("Failed to fetch user details:", err);
         }
     },
@@ -231,202 +276,268 @@ const useDigitalKYCStore = create((set, get) => ({
     // == Contract Interaction Methods (Write/Transactions) ==
     // ==============================================
 
+    /**
+     * Centralized method for executing contract transactions
+     * @param {string} methodName - The contract method to call
+     * @param {Array} args - Arguments for the method
+     * @param {string} successMessage - Optional success message for logging
+     * @returns {Promise<TransactionReceipt>} - Transaction receipt
+     */
     _executeTransaction: async (methodName, args = [], successMessage) => {
         const { contract } = get();
+        
         if (!contract) throw new Error("Not connected to contract.");
+        
         set({ isLoading: true, error: null });
 
         try {
             const tx = await contract[methodName](...args);
             console.log(`Transaction sent for ${methodName}:`, tx.hash);
-            const receipt = await tx.wait(); // Wait for transaction confirmation
+            
+            const receipt = await tx.wait();
             console.log(`Transaction confirmed for ${methodName}:`, receipt);
+            
             set({ isLoading: false });
-            // Optional: Show success message to user
-            if(successMessage) console.log(successMessage); // Replace with better UI feedback
-             return receipt; // Return receipt if needed
+            
+            if (successMessage) console.log(successMessage);
+            
+            return receipt;
+            
         } catch (err) {
             const readableError = getReadableError(err);
             set({ isLoading: false, error: readableError });
+            
             console.error(`Transaction failed for ${methodName}:`, err);
-            throw new Error(readableError); // Re-throw for component-level handling if needed
+            throw new Error(readableError);
         }
     },
 
     // --- User Management (Admin) ---
     addCustomer: async (address) => {
-        try {
-            const { contract } = get();
-            const tx = await contract.addCustomer(address);
-            await tx.wait();
-        } catch (error) {
-            console.error('Error adding customer:', error);
-            throw error;
-        }
+        return get()._executeTransaction(
+            'addCustomer', 
+            [address], 
+            `Customer ${address} added successfully.`
+        );
     },
+    
     addBankEmployee: async (address, ifsc) => {
-        try {
-            const { contract } = get();
-            const tx = await contract.addBankEmployee(address, ifsc);
-            await tx.wait();
-        } catch (error) {
-            console.error('Error adding bank employee:', error);
-            throw error;
-        }
+        return get()._executeTransaction(
+            'addBankEmployee', 
+            [address, ifsc], 
+            `Bank employee ${address} added with IFSC ${ifsc}.`
+        );
     },
+    
     addAdmin: async (address) => {
-        try {
-            const { contract } = get();
-            const tx = await contract.addAdmin(address);
-            await tx.wait();
-        } catch (error) {
-            console.error('Error adding admin:', error);
-            throw error;
-        }
+        return get()._executeTransaction(
+            'addAdmin', 
+            [address], 
+            `Admin ${address} added successfully.`
+        );
     },
-    deactivateUser: (address) => get()._executeTransaction('deactivateUser', [address], `User ${address} deactivated.`),
-    activateUser: (address) => get()._executeTransaction('activateUser', [address], `User ${address} activated.`),
-    updateEmployeeIFSC: (address, newIfsc) => get()._executeTransaction('updateEmployeeIFSC', [address, newIfsc], `IFSC for ${address} updated to ${newIfsc}.`),
+    
+    deactivateUser: (address) => {
+        return get()._executeTransaction(
+            'deactivateUser', 
+            [address], 
+            `User ${address} deactivated.`
+        );
+    },
+    
+    activateUser: (address) => {
+        return get()._executeTransaction(
+            'activateUser', 
+            [address], 
+            `User ${address} activated.`
+        );
+    },
+    
+    updateEmployeeIFSC: (address, newIfsc) => {
+        return get()._executeTransaction(
+            'updateEmployeeIFSC', 
+            [address, newIfsc], 
+            `IFSC for ${address} updated to ${newIfsc}.`
+        );
+    },
 
     // --- KYC Workflow ---
     submitKYC: async (ipfsHash, ifscCode) => {
-        try {
-            const { contract } = get();
-            const tx = await contract.submitKYC(ipfsHash, ifscCode);
-            await tx.wait();
-        } catch (error) {
-            console.error('Error submitting KYC:', error);
-            throw error;
-        }
+        return get()._executeTransaction(
+            'submitKYC', 
+            [ipfsHash, ifscCode], 
+            `KYC submitted with IPFS hash ${ipfsHash} to bank branch ${ifscCode}.`
+        );
     },
+    
     verifyKYC: async (applicant) => {
-        try {
-            const { contract } = get();
-            const tx = await contract.verifyKYC(applicant);
-            await tx.wait();
-        } catch (error) {
-            console.error('Error verifying KYC:', error);
-            throw error;
-        }
+        return get()._executeTransaction(
+            'verifyKYC', 
+            [applicant], 
+            `KYC for ${applicant} verified by employee.`
+        );
     },
-    adminApproveKYC: (applicantAddress) => get()._executeTransaction('adminApproveKYC', [applicantAddress], `KYC for ${applicantAddress} approved by admin.`),
+    
+    adminApproveKYC: (applicantAddress) => {
+        return get()._executeTransaction(
+            'adminApproveKYC', 
+            [applicantAddress], 
+            `KYC for ${applicantAddress} approved by admin.`
+        );
+    },
+    
     rejectKYC: async (applicant, reason) => {
-        try {
-            const { contract } = get();
-            const tx = await contract.rejectKYC(applicant, reason);
-            await tx.wait();
-        } catch (error) {
-            console.error('Error rejecting KYC:', error);
-            throw error;
-        }
+        return get()._executeTransaction(
+            'rejectKYC', 
+            [applicant, reason], 
+            `KYC for ${applicant} rejected with reason: ${reason}.`
+        );
     },
+    
     updateIPFSHash: async (newHash) => {
-        try {
-            const { contract } = get();
-            const tx = await contract.updateIPFSHash(newHash);
-            await tx.wait();
-        } catch (error) {
-            console.error('Error updating IPFS hash:', error);
-            throw error;
-        }
+        return get()._executeTransaction(
+            'updateIPFSHash', 
+            [newHash], 
+            `IPFS hash updated to ${newHash}.`
+        );
     },
+    
     checkExpiry: async (applicant) => {
-        try {
-            const { contract } = get();
-            const tx = await contract.checkExpiry(applicant);
-            await tx.wait();
-        } catch (error) {
-            console.error('Error checking expiry:', error);
-            throw error;
-        }
+        return get()._executeTransaction(
+            'checkExpiry', 
+            [applicant], 
+            `Expiry check performed for ${applicant}.`
+        );
     },
-
 
     // ==============================================
     // == Contract Interaction Methods (Read/View) ==
     // ==============================================
 
-     /**
+    /**
      * Fetches KYC details for a specific applicant address.
-     * Stores result in `currentKycDetails`.
      * @param {string} applicantAddress - The address to fetch details for.
+     * @returns {Object|null} The KYC details or null if error
      */
     getKYCDetails: async (applicantAddress) => {
-         const { contract } = get();
+        const { contract } = get();
+        
         if (!contract) {
-            set({error: "Not connected."});
-            return;
+            set({ error: "Not connected to contract." });
+            return null;
         }
-        set({ isLoading: true, error: null, currentKycDetails: null }); // Reset previous details
+        
+        set({ isLoading: true, error: null, currentKycDetails: null });
+        
         try {
-            const [status, ipfsHash, expiryDate, rejectionReason, lastUpdatedBy] = await contract.getKYCDetails(applicantAddress);
-             const details = {
-                 status: Number(status), // Convert BigInt status to number
-                 statusString: KYCStatusMap[Number(status)] || 'Unknown',
-                 ipfsHash,
-                 expiryDate: Number(expiryDate), // Convert BigInt timestamp to number
-                 expiryDateString: Number(expiryDate) > 0 ? new Date(Number(expiryDate) * 1000).toLocaleString() : 'N/A',
-                 rejectionReason,
-                 lastUpdatedBy,
-                 applicant: applicantAddress, // Add applicant address for context
+            const [status, ipfsHash, expiryDate, rejectionReason, lastUpdatedBy] = 
+                await contract.getKYCDetails(applicantAddress);
+            
+            const statusNumber = Number(status);
+            const expiryTimestamp = Number(expiryDate);
+            
+            const details = {
+                status: statusNumber,
+                statusString: KYCStatusMap[statusNumber] || 'Unknown',
+                ipfsHash,
+                expiryDate: expiryTimestamp,
+                expiryDateString: expiryTimestamp > 0 
+                    ? new Date(expiryTimestamp * 1000).toLocaleString() 
+                    : 'N/A',
+                rejectionReason,
+                lastUpdatedBy,
+                applicant: applicantAddress,
             };
+            
             set({ currentKycDetails: details, isLoading: false });
             return details;
+            
         } catch (err) {
             const readableError = getReadableError(err);
             set({ isLoading: false, error: readableError });
+            
             console.error("Failed to fetch KYC details:", err);
+            return null;
         }
     },
 
     /**
-     * Fetches the list of *active* employees for a given IFSC code.
-     * Stores result in `ifscEmployees`.
+     * Fetches the list of active employees for a given IFSC code.
      * @param {string} ifsc - The IFSC code.
+     * @returns {Array|null} Array of employee addresses or null if error
      */
     getIFSCEmployees: async (ifsc) => {
         const { contract } = get();
+        
         if (!contract) {
-             set({error: "Not connected."});
-            return;
+            set({ error: "Not connected to contract." });
+            return null;
         }
-        set({ isLoading: true, error: null, ifscEmployees: [] }); // Reset previous list
+        
+        set({ isLoading: true, error: null, ifscEmployees: [] });
+        
         try {
             const employees = await contract.getIFSCEmployees(ifsc);
             set({ ifscEmployees: employees, isLoading: false });
-             return employees;
+            
+            return employees;
+            
         } catch (err) {
-             const readableError = getReadableError(err);
+            const readableError = getReadableError(err);
             set({ isLoading: false, error: readableError });
+            
             console.error("Failed to fetch IFSC employees:", err);
+            return null;
         }
     },
 
-     /**
-      * Simple view function call example - Gets role without setting global state
-      * @param {string} userAddress - Address to query
-      * @returns {Promise<number>} Role (0-3) or throws error
-      */
-     getUserRoleForAddress: async (userAddress) => {
-         const { contract } = get();
-         if (!contract) throw new Error("Not connected.");
-         // No loading state set here as it's a quick read expected to be used directly
-         try {
-             // Note: Using getUserDetails as getUserRole is external view in the provided contract
-             // If getUserRole existed and was public view, it could be called directly.
-             // Calling getUserDetails is slightly less efficient if only role is needed.
-             const role = await contract.getUserRole(userAddress);
-             return role;
-         } catch (err) {
-             console.error(`Failed to get role for ${userAddress}:`, err);
-             throw new Error(getReadableError(err));
-         }
-     },
+    /**
+     * Gets role for a specific address without setting global state
+     * @param {string} userAddress - Address to query
+     * @returns {Promise<number>} Role number (0-2) or throws error
+     */
+    getUserRoleForAddress: async (userAddress) => {
+        const { contract } = get();
+        
+        if (!contract) throw new Error("Not connected to contract.");
+        
+        try {
+            const role = await contract.getUserRole(userAddress);
+            return Number(role);
+            
+        } catch (err) {
+            console.error(`Failed to get role for ${userAddress}:`, err);
+            throw new Error(getReadableError(err));
+        }
+    },
+    
+    /**
+     * Gets IFSC code for a specific employee address
+     * @param {string} employeeAddress - Employee address to query
+     * @returns {Promise<string>} IFSC code or empty string if error/not employee
+     */
+    getEmployeeIFSC: async (employeeAddress) => {
+        const { contract } = get();
+        
+        if (!contract) {
+            console.error("Not connected to contract.");
+            return '';
+        }
+        
+        try {
+            // Assuming the contract has a method to get employee IFSC
+            const ifsc = await contract.getEmployeeIFSC(employeeAddress);
+            return ifsc;
+            
+        } catch (err) {
+            console.error(`Failed to get IFSC for employee ${employeeAddress}:`, err);
+            return '';
+        }
+    },
 
-
-    // Utility to clear errors
+    // Utility methods
     clearError: () => set({ error: null }),
-
+    setLoading: (isLoading) => set({ isLoading }),
 }));
 
 export default useDigitalKYCStore;

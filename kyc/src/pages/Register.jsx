@@ -8,7 +8,8 @@ const Register = () => {
         addCustomer, 
         addBankEmployee,
         currentUser,
-        contract
+        contract,
+        account
     } = useDigitalKYCStore();
     
     const [formData, setFormData] = useState({
@@ -49,10 +50,10 @@ const Register = () => {
 
         try {
             if (formData.userType === 'customer') {
-                await addCustomer(formData.address);
+                await addCustomer(account);
                 setMessage('Registered as Customer successfully');
             } else {
-                await addBankEmployee(formData.address, formData.ifsc);
+                await addBankEmployee(account, formData.ifsc);
                 setMessage('Registered as Bank Employee successfully');
             }
             setMessageType('success');

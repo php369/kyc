@@ -25,7 +25,7 @@ const Home = () => {
                 navigate('/register');
             }
         };
-
+        console.log(userRole)
         checkUserRole();
     }, [fetchUserRole, userRole, navigate]);
 

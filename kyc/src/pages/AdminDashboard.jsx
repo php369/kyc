@@ -50,24 +50,23 @@ const AdminDashboard = () => {
         setMessageType('');
 
         try {
-            switch (formData.userType) {
-                case 'admin':
-                    await addAdmin(formData.address);
-                    setMessage('Admin added successfully');
-                    setMessageType('success');
-                    break;
-                case 'employee':
-                    await addBankEmployee(formData.address, formData.ifsc);
-                    setMessage('Bank employee added successfully');
-                    setMessageType('success');
-                    break;
-                case 'customer':
-                    await addCustomer(formData.address);
-                    setMessage('Customer added successfully');
-                    setMessageType('success');
-                    break;
-                default:
-                    throw new Error('Invalid user type');
+            if (formData.userType === 'admin') {
+                await addAdmin(formData.address);
+                setMessage('Admin added successfully');
+                setMessageType('success');
+            } else if (formData.userType === 'employee') {
+                if (!formData.ifsc) {
+                    setMessage('IFSC code is required for bank employees');
+                    setMessageType('error');
+                    return;
+                }
+                await addBankEmployee(formData.address, formData.ifsc);
+                setMessage('Bank employee added successfully');
+                setMessageType('success');
+            } else {
+                await addCustomer(formData.address);
+                setMessage('Customer added successfully');
+                setMessageType('success');
             }
             setFormData({ address: '', ifsc: '', userType: 'customer' });
         } catch (err) {
