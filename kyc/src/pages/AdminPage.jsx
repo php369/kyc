@@ -1,100 +1,306 @@
-// --- src/pages/AdminPage.jsx ---
-import React, { useEffect } from 'react';
-import { useNavigate } from 'react-router-dom'; // Import useNavigate for redirection
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import useDigitalKYCStore from '../store/digitalKYCStore';
-import UserManagement from '../components/UserManagement';
-import ConnectWalletButton from '../components/ConnectWalletButton';
-import LoadingSpinner from '../components/LoadingSpinner'; // Assuming you have this
 
-function AdminPage() {
-  // Get state including the userRole number
-  const { isConnected, userRole, isLoading, account } = useDigitalKYCStore();
-  const navigate = useNavigate(); // Initialize navigate function
+const AdminPage = () => {
+    const navigate = useNavigate();
+    const { 
+        contract, 
+        currentUser,
+        addAdmin,
+        addBankEmployee,
+        addCustomer,
+        deactivateUser,
+        activateUser,
+        updateEmployeeIFSC,
+        getIFSCEmployees,
+        ifscEmployees,
+        isLoading
+    } = useDigitalKYCStore();
 
-  useEffect(() => {
-    // Don't redirect while loading initial connection/role info
-    if (isLoading) {
-        return;
-    }
+    const [formData, setFormData] = useState({
+        address: '',
+        ifsc: '',
+        userType: 'customer' // customer, employee, admin
+    });
 
-    // If connected, check the role
-    if (isConnected) {
-      if (userRole !== 3) {
-        // User is connected but not an Admin
-        console.log(`User role (${userRole}) is not Admin (3). Redirecting...`);
-        // Redirect based on role
-        if (userRole === 1) {
-          navigate('/customer'); // Redirect Customer to their page
-        } else if (userRole === 2) {
-          navigate('/employee'); // Redirect Employee to their page
-        } else {
-          // If role is 0 (inactive/not found) or unexpected, redirect to home
-          navigate('/');
+    const [activeTab, setActiveTab] = useState('addUser');
+    const [searchIFSC, setSearchIFSC] = useState('');
+    const [message, setMessage] = useState('');
+    const [messageType, setMessageType] = useState('');
+
+    useEffect(() => {
+        if (!contract || !currentUser) {
+            navigate('/');
         }
-      }
-      // If userRole === 3, do nothing, stay on the Admin page.
-    } else {
-        // If not connected (and not loading), maybe redirect to home or show login prompt
-        // This case is handled by the return statement below, but you could redirect here too.
-        // navigate('/');
-    }
-    // Re-run this effect if connection status or user role changes
-  }, [isConnected, userRole, isLoading, navigate]);
+    }, [contract, currentUser, navigate]);
 
+    const handleInputChange = (e) => {
+        const { name, value } = e.target;
+        setFormData(prev => ({
+            ...prev,
+            [name]: value
+        }));
+    };
 
-  // --- Render Logic ---
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        setMessage('');
+        setMessageType('');
 
-  // 1. Show loading state while checking connection/role initially
-  // Check isLoading OR if isConnected is false BUT account exists (means wallet is likely connected but role fetch might be pending)
-  const stillLoading = isLoading || (!isConnected && account);
-  if (stillLoading) {
-      return (
-          <div className="flex justify-center items-center h-40">
-              <LoadingSpinner />
-              <span className="ml-2">Loading User Data...</span>
-          </div>
-      );
-  }
+        try {
+            if (formData.userType === 'admin') {
+                await addAdmin(formData.address);
+                setMessage('Admin added successfully');
+                setMessageType('success');
+            } else if (formData.userType === 'employee') {
+                if (!formData.ifsc) {
+                    setMessage('IFSC code is required for bank employees');
+                    setMessageType('error');
+                    return;
+                }
+                await addBankEmployee(formData.address, formData.ifsc);
+                setMessage('Bank employee added successfully');
+                setMessageType('success');
+            } else {
+                await addCustomer(formData.address);
+                setMessage('Customer added successfully');
+                setMessageType('success');
+            }
+            setFormData({ address: '', ifsc: '', userType: 'customer' });
+        } catch (err) {
+            setMessage(err.message || 'Failed to add user');
+            setMessageType('error');
+        }
+    };
 
-  // 2. If not connected after loading, prompt to connect
-  if (!isConnected) {
+    const handleUserStatusChange = async (address, action) => {
+        try {
+            if (action === 'activate') {
+                await activateUser(address);
+                setMessage('User activated successfully');
+            } else {
+                await deactivateUser(address);
+                setMessage('User deactivated successfully');
+            }
+            setMessageType('success');
+        } catch (err) {
+            setMessage(err.message || 'Failed to update user status');
+            setMessageType('error');
+        }
+    };
+
+    const handleIFSCUpdate = async (address, newIFSC) => {
+        try {
+            await updateEmployeeIFSC(address, newIFSC);
+            setMessage('IFSC updated successfully');
+            setMessageType('success');
+        } catch (err) {
+            setMessage(err.message || 'Failed to update IFSC');
+            setMessageType('error');
+        }
+    };
+
+    const handleSearchIFSC = async () => {
+        try {
+            await getIFSCEmployees(searchIFSC);
+        } catch (err) {
+            setMessage(err.message || 'Failed to fetch employees');
+            setMessageType('error');
+        }
+    };
+
     return (
-      <div className="text-center p-6 border rounded-lg bg-white shadow">
-        <h2 className="text-xl font-semibold mb-4">Admin Panel Access</h2>
-        <p className="mb-4">Please connect your wallet to access the admin panel.</p>
-        <ConnectWalletButton />
-      </div>
+        <div className="min-h-screen bg-gray-100 p-6">
+            <div className="max-w-7xl mx-auto">
+                <h1 className="text-3xl font-bold text-gray-900 mb-8">Admin Dashboard</h1>
+                
+                {/* Message Display */}
+                {message && (
+                    <div className={`mb-4 p-4 rounded-md ${
+                        messageType === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                    }`}>
+                        {message}
+                    </div>
+                )}
+
+                {/* Tabs */}
+                <div className="mb-6">
+                    <div className="flex space-x-4">
+                        <button
+                            onClick={() => setActiveTab('addUser')}
+                            className={`px-4 py-2 rounded-md ${
+                                activeTab === 'addUser' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'
+                            }`}
+                        >
+                            Add User
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('manageUsers')}
+                            className={`px-4 py-2 rounded-md ${
+                                activeTab === 'manageUsers' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'
+                            }`}
+                        >
+                            Manage Users
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('viewEmployees')}
+                            className={`px-4 py-2 rounded-md ${
+                                activeTab === 'viewEmployees' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'
+                            }`}
+                        >
+                            View Employees
+                        </button>
+                    </div>
+                </div>
+
+                {/* Add User Form */}
+                {activeTab === 'addUser' && (
+                    <div className="bg-white p-6 rounded-lg shadow-md">
+                        <h2 className="text-xl font-semibold mb-4">Add New User</h2>
+                        <form onSubmit={handleSubmit} className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700">User Type</label>
+                                <select
+                                    name="userType"
+                                    value={formData.userType}
+                                    onChange={handleInputChange}
+                                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                                >
+                                    <option value="customer">Customer</option>
+                                    <option value="employee">Bank Employee</option>
+                                    <option value="admin">Admin</option>
+                                </select>
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700">Ethereum Address</label>
+                                <input
+                                    type="text"
+                                    name="address"
+                                    value={formData.address}
+                                    onChange={handleInputChange}
+                                    required
+                                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                                />
+                            </div>
+
+                            {formData.userType === 'employee' && (
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700">IFSC Code</label>
+                                    <input
+                                        type="text"
+                                        name="ifsc"
+                                        value={formData.ifsc}
+                                        onChange={handleInputChange}
+                                        required
+                                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                                    />
+                                </div>
+                            )}
+
+                            <button
+                                type="submit"
+                                disabled={isLoading}
+                                className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                            >
+                                {isLoading ? 'Adding User...' : 'Add User'}
+                            </button>
+                        </form>
+                    </div>
+                )}
+
+                {/* Manage Users */}
+                {activeTab === 'manageUsers' && (
+                    <div className="bg-white p-6 rounded-lg shadow-md">
+                        <h2 className="text-xl font-semibold mb-4">Manage Users</h2>
+                        <div className="space-y-4">
+                            <div className="flex space-x-4">
+                                <input
+                                    type="text"
+                                    placeholder="Enter user address"
+                                    className="flex-1 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                                />
+                                <button
+                                    className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
+                                    onClick={() => handleUserStatusChange(formData.address, 'activate')}
+                                >
+                                    Activate User
+                                </button>
+                                <button
+                                    className="bg-red-600 text-white px-4 py-2 rounded-md hover:bg-red-700"
+                                    onClick={() => handleUserStatusChange(formData.address, 'deactivate')}
+                                >
+                                    Deactivate User
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* View Employees */}
+                {activeTab === 'viewEmployees' && (
+                    <div className="bg-white p-6 rounded-lg shadow-md">
+                        <h2 className="text-xl font-semibold mb-4">View Employees by IFSC</h2>
+                        <div className="space-y-4">
+                            <div className="flex space-x-4">
+                                <input
+                                    type="text"
+                                    placeholder="Enter IFSC code"
+                                    value={searchIFSC}
+                                    onChange={(e) => setSearchIFSC(e.target.value)}
+                                    className="flex-1 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                                />
+                                <button
+                                    onClick={handleSearchIFSC}
+                                    className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
+                                >
+                                    Search
+                                </button>
+                            </div>
+
+                            {ifscEmployees.length > 0 && (
+                                <div className="mt-4">
+                                    <h3 className="text-lg font-medium mb-2">Employees for IFSC: {searchIFSC}</h3>
+                                    <div className="overflow-x-auto">
+                                        <table className="min-w-full divide-y divide-gray-200">
+                                            <thead className="bg-gray-50">
+                                                <tr>
+                                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                        Address
+                                                    </th>
+                                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                        Actions
+                                                    </th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="bg-white divide-y divide-gray-200">
+                                                {ifscEmployees.map((employee, index) => (
+                                                    <tr key={index}>
+                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                            {employee}
+                                                        </td>
+                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                            <button
+                                                                onClick={() => handleIFSCUpdate(employee, searchIFSC)}
+                                                                className="text-blue-600 hover:text-blue-900"
+                                                            >
+                                                                Update IFSC
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
+            </div>
+        </div>
     );
-  }
+};
 
-  // 3. If connected but role is not Admin (useEffect handles redirect, but this is a fallback UI)
-  // This part might briefly show before the useEffect redirect kicks in.
-  if (userRole !== 3) {
-    return (
-      <div className="text-center p-6 border rounded-lg bg-yellow-100 shadow">
-        <h2 className="text-xl font-semibold mb-4 text-yellow-800">Redirecting...</h2>
-        <p>You do not have Admin privileges. You will be redirected shortly.</p>
-         {/* Optional: Add a manual link */}
-         {/* <Link to="/" className="text-blue-600 hover:underline">Go to Homepage</Link> */}
-      </div>
-    );
-  }
-
-  // 4. If connected *and* userRole is 3 (Admin), show the actual Admin content
-  return (
-    <div className="space-y-6">
-      <h2 className="text-2xl font-bold text-gray-800">Admin Panel</h2>
-      <p className="text-gray-600">Manage users and system settings.</p>
-
-      {/* Admin specific components */}
-      <UserManagement />
-
-      {/* Add other admin components here as needed */}
-      {/* Example: Component to view all KYC records, manage settings, etc. */}
-      {/* <AllKYCRecordsTable /> */}
-      {/* <SystemSettings /> */}
-    </div>
-  );
-}
-
-export default AdminPage;
+export default AdminPage; 

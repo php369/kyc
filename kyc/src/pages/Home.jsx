@@ -1,60 +1,55 @@
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import useDigitalKYCStore from '../store/digitalKYCStore';
-import AdminDashboard from './AdminDashboard';
-import BankEmployeeDashboard from './BankEmployeeDashboard';
-import CustomerDashboard from './CustomerDashboard';
 
 const Home = () => {
     const navigate = useNavigate();
-    const { 
-        isAdmin, 
-        isBankEmployee, 
-        isCustomer,
+    const {
         userRole,
         fetchUserRole,
-        isLoading
-    } = useDigitalKYCStore();
+        isLoading,
+        isConnected, // Check connection status
+    } = useDigitalKYCStore(state => ({
+        userRole: state.userRole,
+        fetchUserRole: state.fetchUserRole,
+        isLoading: state.isLoading,
+        isConnected: state.isConnected,
+    }));
 
+    // Effect to fetch the user role when connected, if not already available
     useEffect(() => {
-        const checkUserRole = async () => {
-            await fetchUserRole();
-            
-            // If userRole is 0 (unregistered) or null, redirect to register
-            if (userRole === 0 || userRole === null) {
-                navigate('/register');
-            }
-        };
-        console.log(userRole)
-        checkUserRole();
-    }, [fetchUserRole, userRole, navigate]);
+        if (isConnected && userRole === null) {
+             fetchUserRole();
+        }
+    }, [isConnected, userRole, fetchUserRole]);
 
-    if (isLoading) {
-        return (
-            <div className="min-h-screen flex items-center justify-center">
-                <div className="text-xl">Loading...</div>
-            </div>
-        );
-    }
+    // Effect to handle redirection based on the fetched role and loading state
+    useEffect(() => {
+        // Only attempt redirection if connected and loading is complete
+        if (isLoading || !isConnected) {
+            return;
+        }
 
-    if (isAdmin) {
-        return <AdminDashboard />;
-    }
+        // Redirect based on role
+        if (userRole === 1) { // Customer
+            navigate('/customer');
+        } else if (userRole === 2) { // Employee
+            navigate('/employee');
+        } else if (userRole === 3) { // Admin
+            navigate('/admin');
+        } else if (userRole === 0 || userRole === null) {
+            // Includes explicitly unregistered (0) or still null after loading check
+            navigate('/register');
+        }
 
-    if (isBankEmployee) {
-        return <BankEmployeeDashboard />;
-    }
+    }, [userRole, isLoading, isConnected, navigate]);
 
-    if (isCustomer) {
-        return <CustomerDashboard />;
-    }
-
-    // Default loading state while checking role
+    // Render loading indicator while checking connection, fetching role, or redirecting
     return (
         <div className="min-h-screen flex items-center justify-center">
-            <div className="text-xl">Loading...</div>
+            <div className="text-xl animate-pulse">Loading User Data...</div>
         </div>
     );
 };
 
-export default Home; 
+export default Home;
