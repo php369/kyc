@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import useDigitalKYCStore from '../store/digitalKYCStore';
+import LoadingSpinner from '../components/LoadingSpinner';
 
 const AdminPage = () => {
     const navigate = useNavigate();
     const { 
         contract, 
-        currentUser,
+        account,
+        isAdmin,
         addAdmin,
         addBankEmployee,
         addCustomer,
@@ -15,13 +17,20 @@ const AdminPage = () => {
         updateEmployeeIFSC,
         getIFSCEmployees,
         ifscEmployees,
-        isLoading
+        isLoading,
+        error,
+        clearError
     } = useDigitalKYCStore();
 
     const [formData, setFormData] = useState({
         address: '',
         ifsc: '',
-        userType: 'customer' // customer, employee, admin
+        userType: 'customer'
+    });
+
+    const [managementData, setManagementData] = useState({
+        userAddress: '',
+        newIfsc: ''
     });
 
     const [activeTab, setActiveTab] = useState('addUser');
@@ -30,10 +39,17 @@ const AdminPage = () => {
     const [messageType, setMessageType] = useState('');
 
     useEffect(() => {
-        if (!contract || !currentUser) {
+        if (!contract || !account || !isAdmin) {
             navigate('/');
         }
-    }, [contract, currentUser, navigate]);
+    }, [contract, account, isAdmin, navigate]);
+
+    useEffect(() => {
+        if (error) {
+            setMessage(error);
+            setMessageType('error');
+        }
+    }, [error]);
 
     const handleInputChange = (e) => {
         const { name, value } = e.target;
@@ -43,8 +59,17 @@ const AdminPage = () => {
         }));
     };
 
+    const handleManagementInputChange = (e) => {
+        const { name, value } = e.target;
+        setManagementData(prev => ({
+            ...prev,
+            [name]: value
+        }));
+    };
+
     const handleSubmit = async (e) => {
         e.preventDefault();
+        clearError();
         setMessage('');
         setMessageType('');
 
@@ -74,27 +99,49 @@ const AdminPage = () => {
         }
     };
 
-    const handleUserStatusChange = async (address, action) => {
+    const handleUserStatusChange = async (action) => {
+        clearError();
+        setMessage('');
+        setMessageType('');
+
+        if (!managementData.userAddress) {
+            setMessage('Please enter a user address');
+            setMessageType('error');
+            return;
+        }
+
         try {
             if (action === 'activate') {
-                await activateUser(address);
+                await activateUser(managementData.userAddress);
                 setMessage('User activated successfully');
             } else {
-                await deactivateUser(address);
+                await deactivateUser(managementData.userAddress);
                 setMessage('User deactivated successfully');
             }
             setMessageType('success');
+            setManagementData(prev => ({ ...prev, userAddress: '' }));
         } catch (err) {
             setMessage(err.message || 'Failed to update user status');
             setMessageType('error');
         }
     };
 
-    const handleIFSCUpdate = async (address, newIFSC) => {
+    const handleUpdateIFSC = async () => {
+        clearError();
+        setMessage('');
+        setMessageType('');
+
+        if (!managementData.userAddress || !managementData.newIfsc) {
+            setMessage('Please enter both user address and new IFSC');
+            setMessageType('error');
+            return;
+        }
+
         try {
-            await updateEmployeeIFSC(address, newIFSC);
+            await updateEmployeeIFSC(managementData.userAddress, managementData.newIfsc);
             setMessage('IFSC updated successfully');
             setMessageType('success');
+            setManagementData({ userAddress: '', newIfsc: '' });
         } catch (err) {
             setMessage(err.message || 'Failed to update IFSC');
             setMessageType('error');
@@ -102,8 +149,22 @@ const AdminPage = () => {
     };
 
     const handleSearchIFSC = async () => {
+        clearError();
+        setMessage('');
+        setMessageType('');
+
+        if (!searchIFSC) {
+            setMessage('Please enter an IFSC code to search');
+            setMessageType('error');
+            return;
+        }
+
         try {
             await getIFSCEmployees(searchIFSC);
+            if (ifscEmployees.length === 0) {
+                setMessage(`No employees found for IFSC: ${searchIFSC}`);
+                setMessageType('info');
+            }
         } catch (err) {
             setMessage(err.message || 'Failed to fetch employees');
             setMessageType('error');
@@ -115,16 +176,16 @@ const AdminPage = () => {
             <div className="max-w-7xl mx-auto">
                 <h1 className="text-3xl font-bold text-gray-900 mb-8">Admin Dashboard</h1>
                 
-                {/* Message Display */}
                 {message && (
                     <div className={`mb-4 p-4 rounded-md ${
-                        messageType === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                        messageType === 'success' ? 'bg-green-100 text-green-700' : 
+                        messageType === 'info' ? 'bg-blue-100 text-blue-700' : 
+                        'bg-red-100 text-red-700'
                     }`}>
                         {message}
                     </div>
                 )}
 
-                {/* Tabs */}
                 <div className="mb-6">
                     <div className="flex space-x-4">
                         <button
@@ -154,7 +215,6 @@ const AdminPage = () => {
                     </div>
                 </div>
 
-                {/* Add User Form */}
                 {activeTab === 'addUser' && (
                     <div className="bg-white p-6 rounded-lg shadow-md">
                         <h2 className="text-xl font-semibold mb-4">Add New User</h2>
@@ -180,6 +240,7 @@ const AdminPage = () => {
                                     name="address"
                                     value={formData.address}
                                     onChange={handleInputChange}
+                                    placeholder="0x..."
                                     required
                                     className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
                                 />
@@ -193,6 +254,7 @@ const AdminPage = () => {
                                         name="ifsc"
                                         value={formData.ifsc}
                                         onChange={handleInputChange}
+                                        placeholder="Enter IFSC code"
                                         required
                                         className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
                                     />
@@ -202,43 +264,92 @@ const AdminPage = () => {
                             <button
                                 type="submit"
                                 disabled={isLoading}
-                                className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                                className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
                             >
-                                {isLoading ? 'Adding User...' : 'Add User'}
+                                {isLoading ? (
+                                    <span className="flex items-center justify-center">
+                                        <LoadingSpinner /> <span className="ml-2">Adding User...</span>
+                                    </span>
+                                ) : 'Add User'}
                             </button>
                         </form>
                     </div>
                 )}
 
-                {/* Manage Users */}
                 {activeTab === 'manageUsers' && (
                     <div className="bg-white p-6 rounded-lg shadow-md">
                         <h2 className="text-xl font-semibold mb-4">Manage Users</h2>
                         <div className="space-y-4">
-                            <div className="flex space-x-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">User Address</label>
                                 <input
                                     type="text"
+                                    name="userAddress"
+                                    value={managementData.userAddress}
+                                    onChange={handleManagementInputChange}
                                     placeholder="Enter user address"
-                                    className="flex-1 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                                    className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
                                 />
+                            </div>
+                            
+                            <div className="flex space-x-4">
                                 <button
-                                    className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
-                                    onClick={() => handleUserStatusChange(formData.address, 'activate')}
+                                    className="flex-1 bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 disabled:opacity-50"
+                                    onClick={() => handleUserStatusChange('activate')}
+                                    disabled={isLoading || !managementData.userAddress}
                                 >
-                                    Activate User
+                                    {isLoading ? 'Processing...' : 'Activate User'}
                                 </button>
                                 <button
-                                    className="bg-red-600 text-white px-4 py-2 rounded-md hover:bg-red-700"
-                                    onClick={() => handleUserStatusChange(formData.address, 'deactivate')}
+                                    className="flex-1 bg-red-600 text-white px-4 py-2 rounded-md hover:bg-red-700 disabled:opacity-50"
+                                    onClick={() => handleUserStatusChange('deactivate')}
+                                    disabled={isLoading || !managementData.userAddress}
                                 >
-                                    Deactivate User
+                                    {isLoading ? 'Processing...' : 'Deactivate User'}
                                 </button>
+                            </div>
+
+                            <div className="mt-6 pt-6 border-t border-gray-200">
+                                <h3 className="text-lg font-medium mb-3">Update Employee IFSC</h3>
+                                
+                                <div className="space-y-3">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Employee Address</label>
+                                        <input
+                                            type="text"
+                                            name="userAddress"
+                                            value={managementData.userAddress}
+                                            onChange={handleManagementInputChange}
+                                            placeholder="Enter employee address"
+                                            className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                                        />
+                                    </div>
+                                    
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">New IFSC Code</label>
+                                        <input
+                                            type="text"
+                                            name="newIfsc"
+                                            value={managementData.newIfsc}
+                                            onChange={handleManagementInputChange}
+                                            placeholder="Enter new IFSC code"
+                                            className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                                        />
+                                    </div>
+                                    
+                                    <button
+                                        className="w-full bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50"
+                                        onClick={handleUpdateIFSC}
+                                        disabled={isLoading || !managementData.userAddress || !managementData.newIfsc}
+                                    >
+                                        {isLoading ? 'Updating...' : 'Update IFSC'}
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>
                 )}
 
-                {/* View Employees */}
                 {activeTab === 'viewEmployees' && (
                     <div className="bg-white p-6 rounded-lg shadow-md">
                         <h2 className="text-xl font-semibold mb-4">View Employees by IFSC</h2>
@@ -253,9 +364,10 @@ const AdminPage = () => {
                                 />
                                 <button
                                     onClick={handleSearchIFSC}
-                                    className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
+                                    disabled={isLoading || !searchIFSC}
+                                    className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50"
                                 >
-                                    Search
+                                    {isLoading ? 'Searching...' : 'Search'}
                                 </button>
                             </div>
 
@@ -280,10 +392,29 @@ const AdminPage = () => {
                                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                                                             {employee}
                                                         </td>
-                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                                                             <button
-                                                                onClick={() => handleIFSCUpdate(employee, searchIFSC)}
-                                                                className="text-blue-600 hover:text-blue-900"
+                                                                onClick={() => {
+                                                                    setManagementData({
+                                                                        userAddress: employee,
+                                                                        newIfsc: ''
+                                                                    });
+                                                                    setActiveTab('manageUsers');
+                                                                }}
+                                                                className="text-blue-600 hover:text-blue-900 mr-3"
+                                                            >
+                                                                Manage
+                                                            </button>
+                                                            <button
+                                                                onClick={() => {
+                                                                    setManagementData({
+                                                                        userAddress: employee,
+                                                                        newIfsc: searchIFSC
+                                                                    });
+                                                                    handleUpdateIFSC();
+                                                                }}
+                                                                className="text-green-600 hover:text-green-900"
+                                                                disabled={isLoading}
                                                             >
                                                                 Update IFSC
                                                             </button>
@@ -303,4 +434,4 @@ const AdminPage = () => {
     );
 };
 
-export default AdminPage; 
+export default AdminPage;
