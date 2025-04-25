@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import useDigitalKYCUnrestrictedStore from '../store/digitalKYCUnrestrictedStore';
+import useDigitalKYCStore from '../store/digitalKYCStore';
 import LoadingSpinner from '../components/LoadingSpinner';
 
 const AdminPage = () => {
@@ -14,12 +14,13 @@ const AdminPage = () => {
         deactivateUser,
         activateUser,
         updateEmployeeIFSC,
-        getIFSCEmployees, // This will call getActiveIFSCEmployees in the unrestricted store
+        getIFSCEmployees,
         ifscEmployees,
         isLoading,
         error,
-        clearError
-    } = useDigitalKYCUnrestrictedStore();
+        clearError,
+        isAdmin
+    } = useDigitalKYCStore();
 
     const [formData, setFormData] = useState({
         address: '',
@@ -37,14 +38,16 @@ const AdminPage = () => {
     const [message, setMessage] = useState('');
     const [messageType, setMessageType] = useState('');
 
-    // With unrestricted store, we don't need to check isAdmin
-    // But we'll keep the contract and account check for UI consistency
+    // Check if user is admin and connected
     useEffect(() => {
         if (!contract || !account) {
             navigate('/');
+        } else if (!isAdmin) {
+            navigate('/');
         }
-    }, [contract, account, navigate]);
+    }, [contract, account, isAdmin, navigate]);
 
+    // Display errors from store
     useEffect(() => {
         if (error) {
             setMessage(error);
@@ -161,7 +164,6 @@ const AdminPage = () => {
         }
 
         try {
-            // This will call getActiveIFSCEmployees in the unrestricted store
             await getIFSCEmployees(searchIFSC);
             if (ifscEmployees.length === 0) {
                 setMessage(`No employees found for IFSC: ${searchIFSC}`);
@@ -227,7 +229,7 @@ const AdminPage = () => {
                                     name="userType"
                                     value={formData.userType}
                                     onChange={handleInputChange}
-                                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                                    className="mt-1 block w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:border-blue-500 focus:ring-blue-500"
                                 >
                                     <option value="customer">Customer</option>
                                     <option value="employee">Bank Employee</option>
@@ -244,7 +246,7 @@ const AdminPage = () => {
                                     onChange={handleInputChange}
                                     placeholder="0x..."
                                     required
-                                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                                    className="mt-1 block w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:border-blue-500 focus:ring-blue-500"
                                 />
                             </div>
 
@@ -258,7 +260,7 @@ const AdminPage = () => {
                                         onChange={handleInputChange}
                                         placeholder="Enter IFSC code"
                                         required
-                                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                                        className="mt-1 block w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:border-blue-500 focus:ring-blue-500"
                                     />
                                 </div>
                             )}
@@ -290,7 +292,7 @@ const AdminPage = () => {
                                     value={managementData.userAddress}
                                     onChange={handleManagementInputChange}
                                     placeholder="Enter user address"
-                                    className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                                    className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:border-blue-500 focus:ring-blue-500"
                                 />
                             </div>
                             
@@ -323,7 +325,7 @@ const AdminPage = () => {
                                             value={managementData.userAddress}
                                             onChange={handleManagementInputChange}
                                             placeholder="Enter employee address"
-                                            className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                                            className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:border-blue-500 focus:ring-blue-500"
                                         />
                                     </div>
                                     
@@ -335,7 +337,7 @@ const AdminPage = () => {
                                             value={managementData.newIfsc}
                                             onChange={handleManagementInputChange}
                                             placeholder="Enter new IFSC code"
-                                            className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                                            className="w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:border-blue-500 focus:ring-blue-500"
                                         />
                                     </div>
                                     
@@ -362,7 +364,7 @@ const AdminPage = () => {
                                     placeholder="Enter IFSC code"
                                     value={searchIFSC}
                                     onChange={(e) => setSearchIFSC(e.target.value)}
-                                    className="flex-1 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                                    className="flex-1 rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:border-blue-500 focus:ring-blue-500"
                                 />
                                 <button
                                     onClick={handleSearchIFSC}
