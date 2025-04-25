@@ -242,7 +242,7 @@ const CustomerPage = () => {
                                         IPFS Hash: {ipfsHash}
                                     </p>
                                     <a
-                                        href={getIPFSURL(ipfsHash)}
+                                        href={`https://ipfs.io/ipfs/${ipfsHash}`}
                                         target="_blank"
                                         rel="noopener noreferrer"
                                         className="text-sm text-blue-600 hover:underline"
@@ -325,7 +325,7 @@ const CustomerPage = () => {
                                         IPFS Hash: {ipfsHash}
                                     </p>
                                     <a
-                                        href={getIPFSURL(ipfsHash)}
+                                        href={`https://ipfs.io/ipfs/${ipfsHash}`}
                                         target="_blank"
                                         rel="noopener noreferrer"
                                         className="text-sm text-blue-600 hover:underline"

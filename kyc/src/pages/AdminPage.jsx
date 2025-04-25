@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import useDigitalKYCStore from '../store/digitalKYCStore';
+import useDigitalKYCUnrestrictedStore from '../store/digitalKYCUnrestrictedStore';
 import LoadingSpinner from '../components/LoadingSpinner';
 
 const AdminPage = () => {
@@ -8,19 +8,18 @@ const AdminPage = () => {
     const { 
         contract, 
         account,
-        isAdmin,
         addAdmin,
         addBankEmployee,
         addCustomer,
         deactivateUser,
         activateUser,
         updateEmployeeIFSC,
-        getIFSCEmployees,
+        getIFSCEmployees, // This will call getActiveIFSCEmployees in the unrestricted store
         ifscEmployees,
         isLoading,
         error,
         clearError
-    } = useDigitalKYCStore();
+    } = useDigitalKYCUnrestrictedStore();
 
     const [formData, setFormData] = useState({
         address: '',
@@ -38,11 +37,13 @@ const AdminPage = () => {
     const [message, setMessage] = useState('');
     const [messageType, setMessageType] = useState('');
 
+    // With unrestricted store, we don't need to check isAdmin
+    // But we'll keep the contract and account check for UI consistency
     useEffect(() => {
-        if (!contract || !account || !isAdmin) {
+        if (!contract || !account) {
             navigate('/');
         }
-    }, [contract, account, isAdmin, navigate]);
+    }, [contract, account, navigate]);
 
     useEffect(() => {
         if (error) {
@@ -160,6 +161,7 @@ const AdminPage = () => {
         }
 
         try {
+            // This will call getActiveIFSCEmployees in the unrestricted store
             await getIFSCEmployees(searchIFSC);
             if (ifscEmployees.length === 0) {
                 setMessage(`No employees found for IFSC: ${searchIFSC}`);
